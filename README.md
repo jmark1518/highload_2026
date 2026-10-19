@@ -227,7 +227,7 @@ N_итого = N_рабочих + 1_резервный
 
 **Ограничитель 1: SSL Termination (CPS) для L7.**
 
-Из тестов веб-сервера NGINX (2017) на 8 CPU: 3 399 HTTPS CPS. С учётом целевой утилизации u=0,7 получаем **2 379,3 CPS** на один балансировщик.
+Из тестов веб-сервера NGINX (2017) на 8 CPU: 3 399 HTTPS CPS[^6]. С учётом целевой утилизации u=0,7 получаем **2 379,3 CPS** на один балансировщик.
 
 **Ограничитель 2: пропускная способность сети для L7.**
 
@@ -313,3 +313,4 @@ HAProxy не терминирует TLS. Пропускная способнос
 [^3]: https://itrussia.media/en/article/nearly-6-million-moscow-residents-now-use-digital-health-rec
 [^4]: https://news.rambler.ru/moscow_city/53442466-moskvichi-s-nachala-goda-zapisalis-k-vracham-cherez-emias-okolo-80-mln-raz/
 [^5]: https://journal-niioz.ru/upload/iblock/161/guq93po3alfhnv8rwdoyi9037j2dhlou/MM_2_26_Тыров.pdf
+[^6]: https://blog.nginx.org/blog/testing-the-performance-of-nginx-and-nginx-plus-web-servers
