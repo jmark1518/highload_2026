@@ -457,110 +457,6 @@ erDiagram
 
 Ключевое правило: при попытке записи никогда не доверяем кешу. Всегда идем в базу, где проверяем актуальность слота и отсутствие пересечений по времени для конкретного врача (`UNIQUE(doctor_id, appointment_time)`).
 
-
-## 6. Физическая схема БД
-
-### 6.1. Обзор физической архитектуры
-
-Физическая схема реализует логическую модель (раздел 5) на конкретных СУБД с учётом профилей нагрузки. Используется **полиглот-персистентность**: транзакционные данные и справочники хранятся в PostgreSQL, медицинские записи и ИИ-пояснения — в Cassandra (широкие колонки, высокая скорость записи), файлы — в S3. Кеш горячих слотов реализован как in-memory cache на подах приложения (без выделенного Redis) с TTL 2–5 секунд.
-
-**Ключевые принципы:**
-- **Отказ от Kafka.** Для асинхронных задач (генерация ИИ, напоминания) используется паттерн **Transactional Outbox** (таблица `outbox` в PostgreSQL). Фоновые воркеры читают её через `SELECT ... FOR UPDATE SKIP LOCKED`, что гарантирует отсутствие потери событий без развертывания дополнительного кластера.
-- **Синхронизация кеша.** Для мгновенной инвалидации локального кеша на подах используется механизм **PostgreSQL LISTEN/NOTIFY**. При изменении слота база отправляет уведомление, и все поды сбрасывают устаревшую запись из памяти.
-- Критичный путь бронирования (`slots`, `appointments`) — PostgreSQL с шардированием по `doctor_id` через расширение Citus.
-- Медицинские записи (`medical_records`, `ai_explanations`) — Cassandra с партиционированием по `patient_id` и `record_id`.
-- Справочники (`clinics`, `departments`, `doctors`, `doctor_employments`) — PostgreSQL, редко меняются, кешируются на подах.
-- Файловые данные — S3-совместимое хранилище с версионированием.
-
-### 6.2. ER-диаграмма с привязкой к СУБД
-
-```mermaid
-erDiagram
-    PATIENTS {
-        uuid patient_id PK
-        varchar full_name
-        varchar policy_number
-    }
-    USERS {
-        uuid user_id PK
-        uuid patient_id FK
-        varchar login
-    }
-    DOCTORS {
-        uuid doctor_id PK
-        varchar full_name
-        numeric avg_rating
-    }
-    CLINICS {
-        uuid clinic_id PK
-        varchar name
-        varchar city
-    }
-    DOCTOR_EMPLOYMENTS {
-        uuid employment_id PK
-        uuid doctor_id FK
-        uuid clinic_id FK
-        boolean is_active
-    }
-    SCHEDULES {
-        uuid schedule_id PK
-        uuid doctor_id FK
-        uuid clinic_id FK
-        date work_date
-    }
-    SLOTS {
-        uuid slot_id PK
-        uuid doctor_id FK
-        uuid clinic_id FK
-        uuid schedule_id FK
-        timestamp slot_start
-        varchar status
-    }
-    APPOINTMENTS {
-        uuid appointment_id PK
-        uuid patient_id FK
-        uuid doctor_id FK
-        uuid clinic_id FK
-        uuid slot_id FK
-        timestamp appointment_time
-    }
-    MEDICAL_RECORDS {
-        uuid record_id PK
-        uuid patient_id FK
-        uuid appointment_id FK
-        varchar document_url
-    }
-    AI_EXPLANATIONS {
-        uuid explanation_id PK
-        uuid record_id FK
-        text explanation_text
-    }
-    REVIEWS {
-        uuid review_id PK
-        uuid appointment_id FK
-        uuid doctor_id FK
-        int rating
-    }
-    OUTBOX {
-        uuid event_id PK
-        varchar event_type
-        jsonb payload
-        varchar status
-        timestamp created_at
-    }
-
-    CLINICS ||--o{ DOCTOR_EMPLOYMENTS : has
-    DOCTORS ||--o{ DOCTOR_EMPLOYMENTS : works_in
-    DOCTORS ||--o{ SCHEDULES : has
-    SCHEDULES ||--o{ SLOTS : generates
-    SLOTS ||--o| APPOINTMENTS : booked_as
-    PATIENTS ||--o{ APPOINTMENTS : makes
-    DOCTORS ||--o{ APPOINTMENTS : receives
-    APPOINTMENTS ||--o| MEDICAL_RECORDS : produces
-    MEDICAL_RECORDS ||--o| AI_EXPLANATIONS : has
-    APPOINTMENTS ||--o| REVIEWS : rated_by
-```
-
 ## 6. Физическая схема БД
 
 ### 6.1. Картинка со списком таблиц, полей и связей
@@ -716,7 +612,7 @@ erDiagram
 | S3 (Файлы) | Версионирование бакетов (Versioning) + Cross-Region Replication | Непрерывно. | Два независимых дата-центра. | Мгновенно. |
 
 Как это работает:
-Раз в сутки мы делаем полную копию базы. Но чтобы не потерять данные, которые добавились за последние 24 часа, PostgreSQL непрерывно пишет лог каждой транзакции (WAL) и отправляет его в S3. Если база сломается, мы разворачиваем вчерашний дамп и «проматываем» WAL-логи до нужной секунды. Потерять можно максимум 5 минут данных (RPO = 5 мин).
+Раз в сутки делаем полную копию базы. Но чтобы не потерять данные, которые добавились за последние 24 часа, PostgreSQL непрерывно пишет лог каждой транзакции (WAL) и отправляет его в S3. Если база сломается, мы разворачиваем вчерашний дамп и «проматываем» WAL-логи до нужной секунды. Потерять можно максимум 5 минут данных (RPO = 5 мин).
 
 ## Источники
 [^1]: https://static.cnews.ru/img/files/2024/03/05/1._gorban_emias.info_final.pdf
