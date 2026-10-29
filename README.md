@@ -465,25 +465,25 @@ erDiagram
 erDiagram
     PATIENTS {
         UUID patient_id PK
-        VARCHAR(255) full_name
-        VARCHAR(16) policy_number UK
-        VARCHAR(20) phone "IDX"
+        VARCHAR full_name
+        VARCHAR policy_number UK
+        VARCHAR phone "IDX"
     }
     USERS {
         UUID user_id PK
         UUID patient_id FK
-        VARCHAR(255) login UK
-        VARCHAR(255) password_hash
+        VARCHAR login UK
+        VARCHAR password_hash
     }
     DOCTORS {
         UUID doctor_id PK
-        VARCHAR(255) full_name
-        NUMERIC(3_2) avg_rating "IDX"
+        VARCHAR full_name
+        NUMERIC avg_rating "IDX"
     }
     CLINICS {
         UUID clinic_id PK
-        VARCHAR(255) name
-        VARCHAR(100) city "IDX"
+        VARCHAR name
+        VARCHAR city "IDX"
     }
     DOCTOR_EMPLOYMENTS {
         UUID employment_id PK
@@ -502,7 +502,7 @@ erDiagram
         UUID doctor_id FK "partition_key"
         UUID clinic_id FK
         TIMESTAMPTZ slot_start "IDX"
-        VARCHAR(20) status "IDX"
+        VARCHAR status "IDX"
     }
     APPOINTMENTS {
         UUID appointment_id PK
@@ -510,7 +510,17 @@ erDiagram
         UUID doctor_id FK
         UUID clinic_id FK
         TIMESTAMPTZ appointment_time
-        VARCHAR(255) document_url
+    }
+    MEDICAL_RECORDS {
+        UUID record_id PK
+        UUID appointment_id FK "UK"
+        UUID patient_id FK
+        VARCHAR document_url
+    }
+    AI_EXPLANATIONS {
+        UUID explanation_id PK
+        UUID record_id FK "UK"
+        TEXT explanation_text
     }
     REVIEWS {
         UUID review_id PK
@@ -520,32 +530,35 @@ erDiagram
     }
     OUTBOX {
         UUID event_id PK
-        VARCHAR(50) event_type
+        VARCHAR event_type
         JSONB payload
-        VARCHAR(20) status "IDX"
+        VARCHAR status "IDX"
         TIMESTAMPTZ created_at
     }
     CACHE_SLOTS {
-        String cache_key PK
+        VARCHAR cache_key PK
         JSONB slot_data
         TIMESTAMPTZ ttl_expires
     }
     S3_FILES {
-        String bucket PK
-        String object_key PK
-        BLOB file_data
+        VARCHAR bucket PK
+        VARCHAR object_key PK
+        BYTEA file_data
     }
 
     PATIENTS ||--o| USERS : authenticates
     CLINICS ||--o{ DOCTOR_EMPLOYMENTS : has
     DOCTORS ||--o{ DOCTOR_EMPLOYMENTS : works_in
     DOCTORS ||--o{ SCHEDULES : has
+    CLINICS ||--o{ SCHEDULES : hosts
     SCHEDULES ||--o{ SLOTS : generates
     SLOTS ||--o| APPOINTMENTS : booked_as
     PATIENTS ||--o{ APPOINTMENTS : makes
     DOCTORS ||--o{ APPOINTMENTS : receives
+    APPOINTMENTS ||--o| MEDICAL_RECORDS : produces
+    MEDICAL_RECORDS ||--o| AI_EXPLANATIONS : has
     APPOINTMENTS ||--o| REVIEWS : rated_by
-    APPOINTMENTS ||--o| S3_FILES : stores_pdf
+    MEDICAL_RECORDS ||--o| S3_FILES : stores_pdf
 ```
 
 ### 6.2. Выбор СУБД (потаблично)
