@@ -571,7 +571,7 @@ erDiagram
         UUID patient_id PK
         VARCHAR(255) full_name
         VARCHAR(16) policy_number UK
-        VARCHAR(20) phone IDX
+        VARCHAR(20) phone "IDX"
     }
     USERS {
         UUID user_id PK
@@ -582,12 +582,12 @@ erDiagram
     DOCTORS {
         UUID doctor_id PK
         VARCHAR(255) full_name
-        NUMERIC(3_2) avg_rating IDX
+        NUMERIC(3_2) avg_rating "IDX"
     }
     CLINICS {
         UUID clinic_id PK
         VARCHAR(255) name
-        VARCHAR(100) city IDX
+        VARCHAR(100) city "IDX"
     }
     DOCTOR_EMPLOYMENTS {
         UUID employment_id PK
@@ -603,14 +603,14 @@ erDiagram
     }
     SLOTS {
         UUID slot_id PK
-        UUID doctor_id FK
+        UUID doctor_id FK "partition_key"
         UUID clinic_id FK
-        TIMESTAMPTZ slot_start IDX
-        VARCHAR(20) status IDX
+        TIMESTAMPTZ slot_start "IDX"
+        VARCHAR(20) status "IDX"
     }
     APPOINTMENTS {
         UUID appointment_id PK
-        UUID patient_id FK IDX
+        UUID patient_id FK "IDX"
         UUID doctor_id FK
         UUID clinic_id FK
         TIMESTAMPTZ appointment_time
@@ -620,13 +620,13 @@ erDiagram
         UUID review_id PK
         UUID appointment_id FK UK
         UUID doctor_id FK
-        SMALLINT rating IDX
+        SMALLINT rating "IDX"
     }
     OUTBOX {
         UUID event_id PK
         VARCHAR(50) event_type
         JSONB payload
-        VARCHAR(20) status IDX
+        VARCHAR(20) status "IDX"
         TIMESTAMPTZ created_at
     }
     CACHE_SLOTS {
