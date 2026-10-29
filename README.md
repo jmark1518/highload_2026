@@ -618,7 +618,7 @@ erDiagram
     }
     REVIEWS {
         UUID review_id PK
-        UUID appointment_id FK UK
+        UUID appointment_id FK "UK"
         UUID doctor_id FK
         SMALLINT rating "IDX"
     }
