@@ -323,19 +323,19 @@ erDiagram
         varchar full_name
         date date_of_birth
         varchar phone
-        varchar email
         varchar policy_number
-        timestamp created_at
+    }
+    USERS {
+        uuid user_id PK
+        uuid patient_id FK
+        varchar login
+        varchar password_hash
     }
     DOCTORS {
         uuid doctor_id PK
-        uuid clinic_id FK
-        uuid department_id FK
         varchar full_name
         varchar speciality
         numeric avg_rating
-        int rating_count
-        boolean is_active
     }
     CLINICS {
         uuid clinic_id PK
@@ -343,36 +343,35 @@ erDiagram
         varchar address
         varchar city
     }
-    DEPARTMENTS {
-        uuid department_id PK
+    DOCTOR_EMPLOYMENTS {
+        uuid employment_id PK
+        uuid doctor_id FK
         uuid clinic_id FK
-        varchar name
+        uuid department_id FK
+        boolean is_active
     }
     SCHEDULES {
         uuid schedule_id PK
         uuid doctor_id FK
+        uuid clinic_id FK
         date work_date
-        time start_time
-        time end_time
-        int slot_duration_min
     }
     SLOTS {
         uuid slot_id PK
+        uuid doctor_id FK
+        uuid clinic_id FK
         uuid schedule_id FK
         timestamp slot_start
-        timestamp slot_end
         varchar status
     }
     APPOINTMENTS {
         uuid appointment_id PK
         uuid patient_id FK
         uuid doctor_id FK
-        uuid slot_id FK
         uuid clinic_id FK
+        uuid slot_id FK
         timestamp appointment_time
         varchar status
-        timestamp created_at
-        timestamp updated_at
     }
     MEDICAL_RECORDS {
         uuid record_id PK
@@ -380,38 +379,25 @@ erDiagram
         uuid patient_id FK
         uuid doctor_id FK
         text diagnosis
-        text conclusion
         varchar document_url
-        timestamp created_at
     }
     AI_EXPLANATIONS {
         uuid explanation_id PK
         uuid record_id FK
         text explanation_text
-        varchar model_version
-        timestamp created_at
     }
     REVIEWS {
         uuid review_id PK
         uuid appointment_id FK
-        uuid patient_id FK
         uuid doctor_id FK
         int rating
         text comment
-        timestamp created_at
-    }
-    USERS {
-        uuid user_id PK
-        uuid patient_id FK
-        varchar login
-        varchar password_hash
-        varchar role
     }
 
-    CLINICS ||--o{ DEPARTMENTS : has
-    CLINICS ||--o{ DOCTORS : employs
-    DEPARTMENTS ||--o{ DOCTORS : contains
+    CLINICS ||--o{ DOCTOR_EMPLOYMENTS : has
+    DOCTORS ||--o{ DOCTOR_EMPLOYMENTS : works_in
     DOCTORS ||--o{ SCHEDULES : has
+    CLINICS ||--o{ SCHEDULES : hosts
     SCHEDULES ||--o{ SLOTS : generates
     SLOTS ||--o| APPOINTMENTS : booked_as
     PATIENTS ||--o{ APPOINTMENTS : makes
