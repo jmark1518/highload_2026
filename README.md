@@ -568,70 +568,79 @@ erDiagram
 ```mermaid
 erDiagram
     PATIENTS {
-        uuid patient_id PK
-        varchar full_name
-        varchar policy_number
+        UUID patient_id PK
+        VARCHAR(255) full_name
+        VARCHAR(16) policy_number UK
+        VARCHAR(20) phone IDX
     }
     USERS {
-        uuid user_id PK
-        uuid patient_id FK
-        varchar login
+        UUID user_id PK
+        UUID patient_id FK
+        VARCHAR(255) login UK
+        VARCHAR(255) password_hash
     }
     DOCTORS {
-        uuid doctor_id PK
-        varchar full_name
-        numeric avg_rating
+        UUID doctor_id PK
+        VARCHAR(255) full_name
+        NUMERIC(3_2) avg_rating IDX
     }
     CLINICS {
-        uuid clinic_id PK
-        varchar name
-        varchar city
+        UUID clinic_id PK
+        VARCHAR(255) name
+        VARCHAR(100) city IDX
     }
     DOCTOR_EMPLOYMENTS {
-        uuid employment_id PK
-        uuid doctor_id FK
-        uuid clinic_id FK
-        boolean is_active
+        UUID employment_id PK
+        UUID doctor_id FK
+        UUID clinic_id FK
+        BOOLEAN is_active
     }
     SCHEDULES {
-        uuid schedule_id PK
-        uuid doctor_id FK
-        uuid clinic_id FK
-        date work_date
+        UUID schedule_id PK
+        UUID doctor_id FK
+        UUID clinic_id FK
+        DATE work_date
     }
     SLOTS {
-        uuid slot_id PK
-        uuid doctor_id FK
-        uuid clinic_id FK
-        timestamp slot_start
-        varchar status
+        UUID slot_id PK
+        UUID doctor_id FK
+        UUID clinic_id FK
+        TIMESTAMPTZ slot_start IDX
+        VARCHAR(20) status IDX
     }
     APPOINTMENTS {
-        uuid appointment_id PK
-        uuid patient_id FK
-        uuid doctor_id FK
-        uuid clinic_id FK
-        uuid slot_id FK
-        timestamp appointment_time
-    }
-    MEDICAL_RECORDS {
-        uuid record_id PK
-        uuid patient_id FK
-        uuid appointment_id FK
-        varchar document_url
-    }
-    AI_EXPLANATIONS {
-        uuid explanation_id PK
-        uuid record_id FK
-        text explanation_text
+        UUID appointment_id PK
+        UUID patient_id FK IDX
+        UUID doctor_id FK
+        UUID clinic_id FK
+        TIMESTAMPTZ appointment_time
+        VARCHAR(255) document_url
     }
     REVIEWS {
-        uuid review_id PK
-        uuid appointment_id FK
-        uuid doctor_id FK
-        int rating
+        UUID review_id PK
+        UUID appointment_id FK UK
+        UUID doctor_id FK
+        SMALLINT rating IDX
+    }
+    OUTBOX {
+        UUID event_id PK
+        VARCHAR(50) event_type
+        JSONB payload
+        VARCHAR(20) status IDX
+        TIMESTAMPTZ created_at
+    }
+    CACHE_SLOTS {
+        String cache_key PK
+        JSONB slot_data
+        TIMESTAMPTZ ttl_expires
+    }
+    S3_FILES {
+        String bucket PK
+        String object_key PK
+        BLOB file_data
     }
 
+    PATIENTS ||--o| USERS : authenticates
     CLINICS ||--o{ DOCTOR_EMPLOYMENTS : has
     DOCTORS ||--o{ DOCTOR_EMPLOYMENTS : works_in
     DOCTORS ||--o{ SCHEDULES : has
@@ -639,9 +648,8 @@ erDiagram
     SLOTS ||--o| APPOINTMENTS : booked_as
     PATIENTS ||--o{ APPOINTMENTS : makes
     DOCTORS ||--o{ APPOINTMENTS : receives
-    APPOINTMENTS ||--o| MEDICAL_RECORDS : produces
-    MEDICAL_RECORDS ||--o| AI_EXPLANATIONS : has
     APPOINTMENTS ||--o| REVIEWS : rated_by
+    APPOINTMENTS ||--o| S3_FILES : stores_pdf
 ```
 
 ### 6.2. Выбор СУБД (потаблично)
