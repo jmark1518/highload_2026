@@ -336,6 +336,7 @@ erDiagram
         varchar full_name
         varchar speciality
         numeric avg_rating
+        int rating_count
     }
     CLINICS {
         uuid clinic_id PK
@@ -479,6 +480,7 @@ erDiagram
         UUID doctor_id PK
         VARCHAR full_name
         NUMERIC avg_rating "IDX"
+        int rating_count
     }
     CLINICS {
         UUID clinic_id PK
