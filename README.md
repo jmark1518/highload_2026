@@ -950,14 +950,33 @@ flowchart TD
     K8s_Nsk --> MinIO
     K8s_Udm --> MinIO
 
-    subgraph Ops ["Наблюдаемость"]
-        Prometheus["Prometheus"]
-        Loki["Loki"]
+    subgraph Ops ["Наблюдаемость и Бэкапы"]
+        direction TB
+        Prometheus["Prometheus<br/>(Сбор метрик)"]
+        Loki["Loki + Promtail<br/>(Сбор логов)"]
+        Grafana["Grafana<br/>(Дашборды)"]
+        Alertmanager["Alertmanager<br/>(Оповещения)"]
+        PgBackRest["pgBackRest<br/>(Бэкапы)"]
+
+        Grafana --> Prometheus
+        Grafana --> Loki
+        Prometheus --> Alertmanager
     end
 
     Prometheus -.->|Сбор метрик| L7_Msk
     Prometheus -.->|Сбор метрик| Leader
-    Loki -.->|Сбор логов| K8s_Msk
+    Prometheus -.->|Сбор метрик| L7_Spb
+    
+    Loki -.->|Access-логи| L7_Msk
+    Loki -.->|Логи подов| K8s_Msk
+    Loki -.->|Логи подов| K8s_Spb
+
+    Leader -.->|WAL-логи| PgBackRest
+    PgBackRest -.->|Сохранение| MinIO
+
+    classDef opsNode fill:#e0e0e0,stroke:#9e9e9e,stroke-width:2px,color:#000
+    class Prometheus,Loki,Grafana,Alertmanager,PgBackRest opsNode
+    style Ops fill:#f4f4f4,stroke:#9e9e9e,stroke-width:2px,stroke-dasharray: 5 5
 ```
 
 ### 10.2. Пояснения к схеме
