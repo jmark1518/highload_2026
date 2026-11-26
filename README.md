@@ -879,75 +879,85 @@ erDiagram
 
 ```mermaid
 flowchart TD
-    Client(["Клиентское приложение / Браузер"])
-    GSLB["GSLB / GeoDNS<br/>Балансировка между ДЦ"]
+    Client(["Клиентское приложение"])
+    GSLB["GSLB / GeoDNS"]
 
-    Client -->|1. DNS-запрос| GSLB
+    Client -->|DNS-запрос| GSLB
 
-    subgraph DC ["Дата-центр (один из 4-х)"]
+    subgraph DC_Msk ["ДЦ-1 Москва (40% трафика)"]
         direction TB
-        L4["L4 Балансировщик<br/>HAProxy + Keepalived VIP"]
-        L7["L7 Балансировщик<br/>NGINX Ingress Controller"]
-        
-        subgraph K8s ["Кластер Kubernetes"]
-            direction LR
-            App1["Pod: API Gateway / Auth"]
-            App2["Pod: Doctor-Service"]
-            App3["Pod: Appointment-Service"]
-            Cache[("Local Cache<br/>Caffeine")]
-            App1 --- Cache
-            App2 --- Cache
-            App3 --- Cache
-        end
-        
-        L4 -->|2. TCP-соединение| L7
-        L7 -->|3. HTTP-запрос| App1
-        L7 --> App2
-        L7 --> App3
+        L4_Msk["L4 HAProxy"] --> L7_Msk["L7 NGINX Ingress"]
+        L7_Msk --> K8s_Msk["Kubernetes (Поды)"]
+        K8s_Msk --> PgBouncer_Msk["PgBouncer"]
+        PgBouncer_Msk --> HAProxyDB_Msk["HAProxy БД"]
+        HAProxyDB_Msk --> Leader[("PostgreSQL<br/>Leader (Master)")]
+        HAProxyDB_Msk --> Async_Msk[("PostgreSQL<br/>Async Replica")]
+        K8s_Msk --> Redis_Msk[("Redis Sentinel<br/>Master")]
     end
 
-    GSLB -->|Маршрутизация в ближайший ДЦ| L4
-
-    subgraph DataLayer ["Слой данных и хранения"]
+    subgraph DC_Spb ["ДЦ-2 Санкт-Петербург (20% трафика)"]
         direction TB
-        Redis[("Redis Sentinel<br/>Сессии и Refresh-токены")]
-        
-        subgraph PG ["PostgreSQL Кластер (Patroni + etcd)"]
-            PgBouncer["PgBouncer<br/>Пул соединений"]
-            HAProxyDB["HAProxy<br/>Разделение Read/Write"]
-            
-            Leader[("Leader<br/>Мастер-запись")]
-            SyncRep[("Sync Replica<br/>Синхронная копия")]
-            AsyncRep[("Async Replica<br/>Асинхронное чтение")]
-            
-            PgBouncer --> HAProxyDB
-            HAProxyDB -->|INSERT/UPDATE| Leader
-            HAProxyDB -->|SELECT| AsyncRep
-            Leader -.->|Синхронная репликация| SyncRep
-            Leader -.->|Асинхронная репликация| AsyncRep
-        end
-        
-        Outbox[("Таблица Outbox<br/>в PostgreSQL")]
-        MinIO[("MinIO S3<br/>PDF-заключения")]
+        L4_Spb["L4 HAProxy"] --> L7_Spb["L7 NGINX Ingress"]
+        L7_Spb --> K8s_Spb["Kubernetes (Поды)"]
+        K8s_Spb --> PgBouncer_Spb["PgBouncer"]
+        PgBouncer_Spb --> Sync_Spb[("PostgreSQL<br/>Sync Replica")]
+        K8s_Spb --> Redis_Spb[("Redis Sentinel<br/>Replica")]
     end
 
-    App1 -->|4. Проверка токена| Redis
-    App3 -->|5. Запись на прием| PgBouncer
-    App2 -->|6. Чтение расписания| PgBouncer
-    App3 -->|7. Сохранение PDF| MinIO
-    
-    subgraph Async ["Асинхронный контур"]
-        Worker["Background Workers<br/>Фоновые воркеры"]
-        AIService["Внешний ИИ-сервис"]
-        SMSService["Шлюз SMS"]
+    subgraph DC_Nsk ["ДЦ-3 Новосибирск (25% трафика)"]
+        direction TB
+        L4_Nsk["L4 HAProxy"] --> L7_Nsk["L7 NGINX Ingress"]
+        L7_Nsk --> K8s_Nsk["Kubernetes (Поды)"]
+        K8s_Nsk --> PgBouncer_Nsk["PgBouncer"]
+        PgBouncer_Nsk --> Async_Nsk[("PostgreSQL<br/>Async Replica")]
+        K8s_Nsk --> Redis_Nsk[("Redis Sentinel<br/>Replica")]
     end
-    
-    Leader -.->|8. Запись события| Outbox
-    Outbox -.->|9. Чтение через SKIP LOCKED| Worker
-    Worker -.->|10. HTTP-запрос| AIService
-    Worker -.->|10. Отправка SMS| SMSService
-    
-    Leader -.->|pg_notify| Cache
+
+    subgraph DC_Udm ["ДЦ-4 Удомля (15% трафика)"]
+        direction TB
+        L4_Udm["L4 HAProxy"] --> L7_Udm["L7 NGINX Ingress"]
+        L7_Udm --> K8s_Udm["Kubernetes (Поды)"]
+        K8s_Udm --> PgBouncer_Udm["PgBouncer"]
+        PgBouncer_Udm --> Sync_Udm[("PostgreSQL<br/>Sync Replica")]
+    end
+
+    GSLB -->|40%| L4_Msk
+    GSLB -->|20%| L4_Spb
+    GSLB -->|25%| L4_Nsk
+    GSLB -->|15%| L4_Udm
+
+    Leader -.->|Sync Репликация| Sync_Spb
+    Leader -.->|Sync Репликация| Sync_Udm
+    Leader -.->|Async Репликация| Async_Nsk
+    Leader -.->|Async Репликация| Async_Msk
+
+    subgraph Shared ["Общие сервисы и асинхронный контур"]
+        direction TB
+        Outbox[("Таблица Outbox")]
+        MinIO[("MinIO S3<br/>Файлы PDF")]
+        Worker["Background Workers"]
+        ExtAI["Внешний ИИ"]
+        ExtSMS["Шлюз SMS"]
+        
+        Outbox --> Worker
+        Worker --> ExtAI
+        Worker --> ExtSMS
+    end
+
+    Leader --> Outbox
+    K8s_Msk --> MinIO
+    K8s_Spb --> MinIO
+    K8s_Nsk --> MinIO
+    K8s_Udm --> MinIO
+
+    subgraph Ops ["Наблюдаемость"]
+        Prometheus["Prometheus"]
+        Loki["Loki"]
+    end
+
+    Prometheus -.->|Сбор метрик| L7_Msk
+    Prometheus -.->|Сбор метрик| Leader
+    Loki -.->|Сбор логов| K8s_Msk
 ```
 
 ### 10.2. Пояснения к схеме
