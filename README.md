@@ -853,6 +853,137 @@ erDiagram
 2. **Географическое разнесение:** Синхронные реплики критичного контура БД (Patroni) и файловое хранилище MinIO размещены в разных дата-центрах (Москва, СПб, Удомля). Это позволяет пережить полную потерю одного ДЦ без потери данных.
 3. **Автоматическое восстановление:** Все процессы переключения (выбор нового Leader, перезапуск подов) происходят автоматически без участия человека. 
 
+## 10. Схема проекта
+
+### 10.1. Схема взаимодействия сервисов
+
+```mermaid
+flowchart TD
+    %% Внешний контур
+    Client([Клиентское приложение / Браузер])
+    GSLB[GSLB / GeoDNS\nБалансировка между ДЦ]
+
+    Client -->|1. DNS-запрос| GSLB
+
+    %% Зона одного ДЦ (Москва/СПб/Новосибирск/Удомля)
+    subgraph DC [Дата-центр (один из 4-х)]
+        direction TB
+        L4[L4 Балансировщик\nHAProxy + Keepalived VIP]
+        L7[L7 Балансировщик\nNGINX Ingress Controller]
+        
+        subgraph K8s [Кластер Kubernetes]
+            direction LR
+            App1[Pod: API Gateway / Auth]
+            App2[Pod: Doctor-Service]
+            App3[Pod: Appointment-Service]
+            Cache[(Local Cache\nCaffeine)]
+            App1 --- Cache
+            App2 --- Cache
+            App3 --- Cache
+        end
+        
+        L4 -->|2. TCP-соединение| L7
+        L7 -->|3. HTTP-запрос| App1
+        L7 --> App2
+        L7 --> App3
+    end
+
+    GSLB -->|Маршрутизация в ближайший ДЦ| L4
+
+    %% Слой данных
+    subgraph DataLayer [Слой данных и хранения]
+        direction TB
+        Redis[(Redis Sentinel\nСессии и Refresh-токены)]
+        
+        subgraph PG [PostgreSQL Кластер (Patroni + etcd)]
+            PgBouncer[PgBouncer\nПул соединений]
+            HAProxyDB[HAProxy\nРазделение Read/Write]
+            
+            Leader[(Leader\nМастер-запись)]
+            SyncRep[(Sync Replica\nСинхронная копия)]
+            AsyncRep[(Async Replica\nАсинхронное чтение)]
+            
+            PgBouncer --> HAProxyDB
+            HAProxyDB -->|INSERT/UPDATE| Leader
+            HAProxyDB -->|SELECT| AsyncRep
+            Leader -.->|Синхронная репликация| SyncRep
+            Leader -.->|Асинхронная репликация| AsyncRep
+        end
+        
+        Outbox[(Таблица Outbox\nв PostgreSQL)]
+        MinIO[(MinIO S3\nPDF-заключения)]
+    end
+
+    %% Связи приложений с данными
+    App1 -->|4. Проверка токена| Redis
+    App3 -->|5. Запись на прием| PgBouncer
+    App2 -->|6. Чтение расписания| PgBouncer
+    App3 -->|7. Сохранение PDF| MinIO
+    
+    %% Асинхронный контур
+    subgraph Async [Асинхронный контур]
+        Worker[Background Workers\nФоновые воркеры]
+        AIService[Внешний ИИ-сервис]
+        SMSService[Шлюз SMS]
+    end
+    
+    Leader -.->|8. Запись события| Outbox
+    Outbox -.->|9. Чтение через SKIP LOCKED| Worker
+    Worker -.->|10. HTTP-запрос| AIService
+    Worker -.->|10. Отправка SMS| SMSService
+    
+    %% Инвалидация кэша
+    Leader -.->|pg_notify| Cache
+```
+
+### 10.2. Пояснения к схеме
+
+Схема разделена на три макроблока: **Внешний контур**, **Дата-центр (внутри ДЦ)** и **Слой данных**.
+
+#### 1. Внешняя балансировка (Global Load Balancing)
+- **GSLB / GeoDNS:** Клиент делает DNS-запрос. GSLB определяет географическое положение клиента (GeoDNS) и возвращает IP ближайшего доступного дата-центра. Если один из ДЦ недоступен (health check не прошел 3 раза), GSLB автоматически перераспределяет веса на живые ДЦ (Москва 40%, СПб 20%, Новосибирск 25%, Удомля 15%).
+
+#### 2. Внутренняя балансировка (Local Load Balancing)
+- **L4 (Транспортный уровень):** HAProxy с виртуальным IP (VRRP/Keepalived) принимает TCP-соединение и распределяет его между подами NGINX.
+- **L7 (Прикладной уровень):** NGINX Ingress Controller терминирует TLS (расшифровывает HTTPS) и маршрутизирует запрос по путям (например, `/api/v1/appointments` идет в Appointment-Service, а `/api/v1/auth` — в Auth-Service).
+- **Kubernetes Service:** Внутри K8s абстракция Service (через kube-proxy/IPVS) балансирует запросы между конкретными подами (например, 10 копиями Appointment-Service).
+
+#### 3. Слой данных (Data Layer)
+- **Redis Sentinel:** Используется исключительно для проверки Access-токенов и хранения Refresh-сессий. Кластер (1 Master + 2 Replica + 3 Sentinels) обеспечивает отказоустойчивость.
+- **PgBouncer + HAProxy:** Защищают БД от переполнения соединений и строго разделяют трафик: запросы на чтение (`SELECT`) идут на Async-реплики, а запросы на запись (`INSERT/UPDATE`) — на Leader.
+- **Кластер PostgreSQL (Patroni):** Обеспечивает синхронную репликацию (RPO = 0) для критичных данных (записи, слоты). При падении Leader, Patroni через etcd повышает Sync-реплику.
+- **MinIO:** Объектное хранилище для PDF-заключений. База данных хранит только ссылки (`document_url`).
+
+#### 4. Асинхронный контур (Outbox)
+- Вместо Kafka используется паттерн **Transactional Outbox**. При записи на прием транзакция сохраняет данные в основную таблицу и кладет задачу (например, «сгенерировать ИИ-пояснение») в таблицу `outbox`.
+- **Background Workers** (фоновые воркеры) читают задачи из `outbox` с помощью `SKIP LOCKED` и обращаются к внешним API (YandexGPT, SMS-шлюз).
+
+### 10.3. Потоки данных (User Journeys)
+
+Рассмотрим два ключевых сценария, чтобы понять, как работает система.
+
+#### Поток 1: Просмотр расписания врача (Read-heavy)
+1. Пользователь открывает приложение. GSLB возвращает IP ближайшего ДЦ (например, Новосибирска).
+2. Запрос проходит через L4 (HAProxy) и L7 (NGINX).
+3. NGINX направляет запрос в `Doctor-Service`.
+4. `Doctor-Service` проверяет, есть ли расписание в локальном кэше (Caffeine). 
+   - *Если есть (Cache Hit):* отдает данные мгновенно (нагрузка на БД = 0).
+   - *Если нет (Cache Miss):* идет через PgBouncer и HAProxy в Async-реплику PostgreSQL, забирает данные, кладет в Caffeine и отдает пользователю.
+5. База данных (Leader) при этом не нагружается вообще, так как все чтения идут с реплик.
+
+#### Поток 2: Запись на прием (Write-heavy / Transactional)
+1. Пациент нажимает «Записаться». Запрос идет в `Appointment-Service`.
+2. Сервис проверяет Access-токен (запрос в Redis).
+3. Сервис обращается к **Leader** PostgreSQL через PgBouncer.
+4. Выполняется транзакция:
+   - `SELECT status FROM slots WHERE slot_id = $1 FOR UPDATE` (блокировка слота).
+   - `INSERT INTO appointments` (создание записи).
+   - `UPDATE slots SET status = 'booked'`.
+   - `INSERT INTO outbox` (создание фоновой задачи).
+5. Транзакция фиксируется (`COMMIT`). Leader синхронно отправляет данные на Sync-реплику.
+6. Через механизм `pg_notify` база отправляет сигнал всем подам приложения: «Слот занят!». Поды сбрасывают локальный кэш (Caffeine) для этого врача.
+7. Пользователь видит «Вы записаны».
+8. В фоне Background Worker забирает задачу из `outbox` и отправляет SMS-напоминание.
 
 ## Источники
 [^1]: https://static.cnews.ru/img/files/2024/03/05/1._gorban_emias.info_final.pdf
