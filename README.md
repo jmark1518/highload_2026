@@ -859,24 +859,22 @@ erDiagram
 
 ```mermaid
 flowchart TD
-    %% Внешний контур
-    Client([Клиентское приложение / Браузер])
-    GSLB[GSLB / GeoDNS\nБалансировка между ДЦ]
+    Client(["Клиентское приложение / Браузер"])
+    GSLB["GSLB / GeoDNS<br/>Балансировка между ДЦ"]
 
     Client -->|1. DNS-запрос| GSLB
 
-    %% Зона одного ДЦ (Москва/СПб/Новосибирск/Удомля)
-    subgraph DC [Дата-центр (один из 4-х)]
+    subgraph DC ["Дата-центр (один из 4-х)"]
         direction TB
-        L4[L4 Балансировщик\nHAProxy + Keepalived VIP]
-        L7[L7 Балансировщик\nNGINX Ingress Controller]
+        L4["L4 Балансировщик<br/>HAProxy + Keepalived VIP"]
+        L7["L7 Балансировщик<br/>NGINX Ingress Controller"]
         
-        subgraph K8s [Кластер Kubernetes]
+        subgraph K8s ["Кластер Kubernetes"]
             direction LR
-            App1[Pod: API Gateway / Auth]
-            App2[Pod: Doctor-Service]
-            App3[Pod: Appointment-Service]
-            Cache[(Local Cache\nCaffeine)]
+            App1["Pod: API Gateway / Auth"]
+            App2["Pod: Doctor-Service"]
+            App3["Pod: Appointment-Service"]
+            Cache[("Local Cache<br/>Caffeine")]
             App1 --- Cache
             App2 --- Cache
             App3 --- Cache
@@ -890,18 +888,17 @@ flowchart TD
 
     GSLB -->|Маршрутизация в ближайший ДЦ| L4
 
-    %% Слой данных
-    subgraph DataLayer [Слой данных и хранения]
+    subgraph DataLayer ["Слой данных и хранения"]
         direction TB
-        Redis[(Redis Sentinel\nСессии и Refresh-токены)]
+        Redis[("Redis Sentinel<br/>Сессии и Refresh-токены")]
         
-        subgraph PG [PostgreSQL Кластер (Patroni + etcd)]
-            PgBouncer[PgBouncer\nПул соединений]
-            HAProxyDB[HAProxy\nРазделение Read/Write]
+        subgraph PG ["PostgreSQL Кластер (Patroni + etcd)"]
+            PgBouncer["PgBouncer<br/>Пул соединений"]
+            HAProxyDB["HAProxy<br/>Разделение Read/Write"]
             
-            Leader[(Leader\nМастер-запись)]
-            SyncRep[(Sync Replica\nСинхронная копия)]
-            AsyncRep[(Async Replica\nАсинхронное чтение)]
+            Leader[("Leader<br/>Мастер-запись")]
+            SyncRep[("Sync Replica<br/>Синхронная копия")]
+            AsyncRep[("Async Replica<br/>Асинхронное чтение")]
             
             PgBouncer --> HAProxyDB
             HAProxyDB -->|INSERT/UPDATE| Leader
@@ -910,21 +907,19 @@ flowchart TD
             Leader -.->|Асинхронная репликация| AsyncRep
         end
         
-        Outbox[(Таблица Outbox\nв PostgreSQL)]
-        MinIO[(MinIO S3\nPDF-заключения)]
+        Outbox[("Таблица Outbox<br/>в PostgreSQL")]
+        MinIO[("MinIO S3<br/>PDF-заключения")]
     end
 
-    %% Связи приложений с данными
     App1 -->|4. Проверка токена| Redis
     App3 -->|5. Запись на прием| PgBouncer
     App2 -->|6. Чтение расписания| PgBouncer
     App3 -->|7. Сохранение PDF| MinIO
     
-    %% Асинхронный контур
-    subgraph Async [Асинхронный контур]
-        Worker[Background Workers\nФоновые воркеры]
-        AIService[Внешний ИИ-сервис]
-        SMSService[Шлюз SMS]
+    subgraph Async ["Асинхронный контур"]
+        Worker["Background Workers<br/>Фоновые воркеры"]
+        AIService["Внешний ИИ-сервис"]
+        SMSService["Шлюз SMS"]
     end
     
     Leader -.->|8. Запись события| Outbox
@@ -932,7 +927,6 @@ flowchart TD
     Worker -.->|10. HTTP-запрос| AIService
     Worker -.->|10. Отправка SMS| SMSService
     
-    %% Инвалидация кэша
     Leader -.->|pg_notify| Cache
 ```
 
